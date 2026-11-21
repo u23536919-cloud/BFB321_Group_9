@@ -1,13 +1,17 @@
 """We used AI to help build our frontend model.
 This values displayed on the dashboard are defualt or dummy values. We have not reieved values from Fintr as of yet.
 Step 1 demo server. Pages call the Step 2 model directly; Steps 4-5 replace this with
-Blueprints + REST endpoints + MySQL. Login is a visual placeholder (no real auth yet)."""
+Blueprints + REST endpoints. Step 3 added MySQL (see db.py, repository.py, database/). Login is a visual placeholder (no real auth yet)."""
 from collections import OrderedDict
 from datetime import date
 from dataclasses import fields, replace
 from math import isfinite
 from io import BytesIO
-from flask import Flask, flash, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, current_app, flash, g, redirect, render_template, request, send_file, session, url_for
+import logging
+import repository as repo  # all the MySQL queries (see repository.py)
+from config import get_config  # settings per environment (development / testing / production)
+from db import DatabaseError  # raised when MySQL is down or a query fails
 from models import breakeven as m
 from report_pdf import build_report_pdf
 
@@ -32,6 +36,60 @@ CUR = {"uk": {"code": "GBP", "axis": "£", "name": "British pounds"},
        "us": {"code": "USD", "axis": "USD", "name": "US dollars"}}
 
 #The above code defines the constants and units for the rest of the code, for the different regions, on the website. The user can change these values on the scenario comparison tabs.
+
+# ---- MySQL helpers -------------------------------------------------------------------------
+# When USE_DATABASE is true the values come from MySQL (see database/schema.sql and seed.sql);
+# the REGIONS dictionary above is then only the fallback used by the unit tests.
+def use_db():
+    return current_app.config.get("USE_DATABASE", False)
+
+
+# snapshot() reads everything from MySQL once per request and keeps it in flask's g object,
+# so a page does not run the same queries again and again.
+def snapshot():
+    if "snapshot" not in g:
+        g.snapshot = repo.load_snapshot()
+    return g.snapshot
+
+
+# after we save something we throw the cached copy away so the next read sees the new values.
+def refresh_snapshot():
+    g.pop("snapshot", None)
+
+
+def region_name(code):
+    return snapshot()["regions"][code]["name"] if use_db() else REGIONS[code]["name"]
+
+
+def region_choices():
+    """{code: {"name": ...}} for the report page drop-down."""
+    if use_db():
+        return {c: {"name": r["name"]} for c, r in snapshot()["regions"].items() if c in REGIONS}
+    return REGIONS
+
+
+def current_user_id():
+    return session.get("user_id") if use_db() else None
+
+
+# the factory settings (used by the Reset button): code defaults, with shipment costs in ZAR.
+def factory_settings():
+    vals = {f["name"]: f["default"] for f in setting_fields() if f["group"] != "regional"}
+    shipments = {code: m.RegionInputs.inbound_shipment_fixed_zar for code in REGIONS}
+    return vals, shipments
+
+
+# db_settings_values() puts the saved MySQL values on top of the defaults.
+def db_settings_values(vals):
+    data = snapshot()
+    vals["fx_zar_per_usd"] = data["rates"]["USD"]
+    vals["zar_per_gbp"] = data["rates"]["GBP"]
+    for name, value in data["assumptions"].items():
+        if name in vals:
+            vals[name] = value
+    for code in REGIONS:
+        vals[f"{SHIPMENT_COST_FIELD}_{code}"] = data["inputs"][code]["inbound_shipment_fixed_zar"]
+    return vals
 
 #The def setting_fields() function is used to display the default values for the different inventory and replenishment fields on the website. 
 def setting_fields():
@@ -63,8 +121,10 @@ def setting_fields():
 # The def settings_values() function is used to display the default values but the user can change the values.
 # The function will then update to use the new values that the user inputted .
 def settings_values():
-    """Saved assumptions (kept in the user's session) on top of the defaults."""
+    """Saved assumptions on top of the defaults: from MySQL, or from the session when the database is off."""
     vals = {f["name"]: f["default"] for f in setting_fields()}
+    if use_db():
+        return db_settings_values(vals)
     regional_names = {name for name, _ in REGIONAL_SHIPMENT_FIELDS}
     for name, _ in REGIONAL_SHIPMENT_FIELDS:
         vals[name] = m.RegionInputs.inbound_shipment_fixed_zar
@@ -86,6 +146,13 @@ def settings_values():
 
 # The def region_state() function is used to display the state we are in.
 def region_state(code):
+    if use_db():
+        # the saved inputs and volume live in MySQL; only the what-if slider positions stay in the session
+        row = snapshot()["inputs"][code]
+        state = {name: row[name] for name in MAIN_FIELDS}
+        state["volume"] = row["monthly_volume"]
+        state["wi"] = session.get("state", {}).get(code, {}).get("wi", {})
+        return state
     state = dict(session.get("state", {}).get(code, {}))
     fx = settings_values()["fx_zar_per_usd"]
     legacy_fields = {
@@ -144,7 +211,10 @@ def freight_change(code):
     """% change of the current freight rate (saved input and freight slider) against the starting rate."""
     st = region_state(code)
     #base is the starting freight rate.
-    base = REGIONS[code]["over"].get("direct_freight_zar", m.RegionInputs.direct_freight_zar)
+    if use_db():
+        base = snapshot()["inputs"][code]["baseline_freight_zar"]
+    else:
+        base = REGIONS[code]["over"].get("direct_freight_zar", m.RegionInputs.direct_freight_zar)
     if not st or not base:
         return 0.0 #If nothing has been inputted, the freight rate change will be 0.
     #if the user has inputted a new freight rate, the function will calculate the % change of the current freight rate against the starting rate.
@@ -160,9 +230,19 @@ def grouped_fields():
 
 
 #This function sets up the Flask app and all the pages (routes) inside it. 
-def create_app():
+def create_app(config_name=None, **overrides):
     app = Flask(__name__)
-    app.secret_key = "dev-only-change-me" 
+    app.config.from_object(get_config(config_name))  # development / testing / production (config.py)
+    app.config.update(overrides)
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY is not set. Add it to your .env file.")
+    logging.basicConfig(level=app.config["LOG_LEVEL"], format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    # if MySQL is down we show a friendly page instead of a raw error
+    @app.errorhandler(DatabaseError)
+    def database_problem(e):
+        app.logger.error("Database problem: %s", e)
+        return render_template("error.html", title="Database unavailable", msg=str(e)), 503
 
     
     @app.template_filter("n")
@@ -178,6 +258,13 @@ def create_app():
         if request.method == "POST":
             session["name"] = request.form.get("name", "").strip()[:60]
             session["role"] = request.form.get("role", "")[:40]
+            if use_db():
+                # no password check yet (real login comes later): we find or create the user in MySQL
+                email = request.form.get("email", "").strip().lower()[:120]
+                if not email or not session["role"]:
+                    flash("Enter your work email and select your role.", "danger")
+                    return render_template("login.html")
+                session["user_id"] = repo.upsert_user(session["name"] or email.split("@")[0], email, session["role"])
             return redirect(url_for("dashboard"))
         return render_template("login.html")
 
@@ -185,7 +272,7 @@ def create_app():
     def summary(code):
         p, q = region_inputs(code), region_volume(code)
         be = m.break_even_volume(p)
-        return {"code": code, "name": REGIONS[code]["name"], "q": q, "be": be,
+        return {"code": code, "name": region_name(code), "q": q, "be": be,
                 "direct_unit": m.total_cost_direct(p, q) / q if q else None,
                 "wh_unit": m.total_cost_warehouse(p, q) / q if q else None,
                 "progress": m.progress_to_break_even(q, be), "rec": m.recommend(p, q, MARGIN)}
@@ -215,8 +302,12 @@ def create_app():
     #shell() adds the users name , role and alert count to every template automatically, so we dont have to enter them manually on every page.
     @app.context_processor
     def shell():
+        try:
+            count = len(active_alerts())
+        except DatabaseError:  # database down: still show the error page
+            count = 0
         return {"user_name": session.get("name", ""), "user_role": session.get("role", ""),
-                "alert_count": len(active_alerts())}
+                "alert_count": count}
 
     #overview() works out the combined UK + US numbers shown on the dashboard
     def overview():
@@ -272,7 +363,12 @@ def create_app():
         fields_ = setting_fields()
         if request.method == "POST":
             if "reset" in request.form: # the reset button removes saved assumptions 
-                session.pop("assump", None)
+                if use_db():
+                    vals, shipments = factory_settings()
+                    repo.save_settings(vals, shipments, current_user_id())
+                    refresh_snapshot()
+                else:
+                    session.pop("assump", None)
                 flash("Assumptions reset to the defaults.", "success")
                 return redirect(url_for("settings"))
             try: # if  it does not reset, it converts it to a number, checks if the numbers are valid, displays the required currency and saves the new assumptions given all the values are valid
@@ -298,7 +394,12 @@ def create_app():
                         new[name] *= rate
                 model_fields = {f.name for f in fields(m.RegionInputs)}
                 m.RegionInputs(**{k: v for k, v in new.items() if k in model_fields})
-                session["assump"] = new
+                if use_db():
+                    shipments = {code: new[f"{SHIPMENT_COST_FIELD}_{code}"] for code in REGIONS}
+                    repo.save_settings(new, shipments, current_user_id())  # saved in MySQL
+                    refresh_snapshot()
+                else:
+                    session["assump"] = new
                 flash("Assumptions saved.", "success")
                 return redirect(url_for("settings"))
             except (ValueError, KeyError) as e:
@@ -362,7 +463,7 @@ def create_app():
     def reports():
         code, show = report_args()
         d = report_data(code, show)
-        return render_template("reports.html", d=d, s=d["s"], regions=REGIONS, code=code, page="reports", show=show,
+        return render_template("reports.html", d=d, s=d["s"], regions=region_choices(), code=code, page="reports", show=show,
                                saving=d["saving"], costs={"direct": d["direct"], "warehouse": d["warehouse"]},
                                analysis=ANALYSIS, generated=bool(request.args.get("g")), today=d["date"])
 
@@ -375,6 +476,8 @@ def create_app():
             return redirect(url_for("reports", region=code, f=1))
         d = report_data(code, show)
         name = f"Fintr_report_{code.upper()}_{date.today().isoformat()}.pdf"
+        if use_db():  # keep a log of every report that was generated
+            repo.record_report(code, current_user_id(), ",".join(k for k, _ in ANALYSIS if k in show), name)
         return send_file(BytesIO(build_report_pdf(d)), mimetype="application/pdf", as_attachment=True,
                          download_name=name)
 
@@ -428,6 +531,14 @@ def create_app():
                 np_ = replace(p, **new)
                 calc = build_results(np_, nvol, nwi)
                 p, vol, wi = np_, nvol, nwi
+                if use_db():
+                    # save the new inputs and volume, and keep this what-if run in the scenarios table
+                    sp = m.apply_scenario(p, wi["freight"] / 100, wi["customs"] / 100, wi["lease"] / 100)
+                    sq = vol * (1 + wi["growth"] / 100)
+                    repo.save_region_inputs(code, new, vol, current_user_id())
+                    repo.record_scenario(code, current_user_id(), vol, wi, m.break_even_volume(sp),
+                                         m.monthly_saving(sp, sq), m.recommend(sp, sq, MARGIN))
+                    refresh_snapshot()
                 state = session.get("state", {})
                 state[code] = {**{k: getattr(p, k) for k in MAIN_FIELDS}, "volume": vol, "wi": wi}
                 session["state"] = state
@@ -436,7 +547,7 @@ def create_app():
         if calc is None:
             calc = build_results(p, vol, wi)
         vals = {k: round(getattr(p, k) * rate, 2) for k in MAIN_FIELDS}
-        return render_template("region.html", code=code, name=REGIONS[code]["name"], vals=vals, vol=vol, wi=wi,
+        return render_template("region.html", code=code, name=region_name(code), vals=vals, vol=vol, wi=wi,
                                cur=CUR[code], page=code, margin=int(MARGIN * 100), calc=calc)
 # the above region function allows users to fill in the relevant data with their own values. 
 # Once they click "Calculate", this function will use those input values to recalculate the results, updates the graph and sensitivity analysis and displays the updated page
