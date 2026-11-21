@@ -11,10 +11,11 @@ INSERT INTO roles (name) VALUES
     ('Supply chain planner'),
     ('Senior management');
 
-INSERT INTO users (name, email, role_id) VALUES
-    ('Jiara Martins',  'jiara.martins@fintr.com',  (SELECT id FROM roles WHERE name = 'Finance')),
-    ('Thabo Nkosi',    'thabo.nkosi@fintr.com',    (SELECT id FROM roles WHERE name = 'Supply chain planner')),
-    ('Lerato Dlamini', 'lerato.dlamini@fintr.com', (SELECT id FROM roles WHERE name = 'Senior management'));
+-- Demo password for all three users: demo123 (stored only as a salted hash)
+INSERT INTO users (name, email, password_hash, role_id) VALUES
+    ('Jiara Martins',  'jiara.martins@fintr.com',  'pbkdf2:sha256:1000000$BmNpFR5pNLUKonQg$3c94aedf8f4b5290e1cf1ec356374377ce6bf505ab2555d9a1958077b588b087', (SELECT id FROM roles WHERE name = 'Finance')),
+    ('Thabo Nkosi',    'thabo.nkosi@fintr.com',    'pbkdf2:sha256:1000000$BmNpFR5pNLUKonQg$3c94aedf8f4b5290e1cf1ec356374377ce6bf505ab2555d9a1958077b588b087', (SELECT id FROM roles WHERE name = 'Supply chain planner')),
+    ('Lerato Dlamini', 'lerato.dlamini@fintr.com', 'pbkdf2:sha256:1000000$BmNpFR5pNLUKonQg$3c94aedf8f4b5290e1cf1ec356374377ce6bf505ab2555d9a1958077b588b087', (SELECT id FROM roles WHERE name = 'Senior management'));
 
 INSERT INTO currencies (code, name, symbol) VALUES
     ('GBP', 'British pound', '£'),

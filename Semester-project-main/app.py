@@ -14,6 +14,7 @@ from config import get_config  # settings per environment (development / testing
 from db import DatabaseError  # raised when MySQL is down or a query fails
 from models import breakeven as m
 from report_pdf import build_report_pdf
+from api import init_api 
 
 REGIONS = {  
     "uk": {"name": "United Kingdom", "volume": 780, "over": {}},
@@ -243,7 +244,11 @@ def create_app(config_name=None, **overrides):
     def database_problem(e):
         app.logger.error("Database problem: %s", e)
         return render_template("error.html", title="Database unavailable", msg=str(e)), 503
-
+    
+    app.extensions["fintr"] = {"inputs": region_inputs, "volume": region_volume, "name": region_name,
+                               "use_db": use_db, "refresh": refresh_snapshot, "regions": REGIONS,
+                               "margin": MARGIN}
+    init_api(app)
     
     @app.template_filter("n")
     def n(v, d=0):

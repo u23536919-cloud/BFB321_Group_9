@@ -25,6 +25,16 @@ class DatabaseError(Exception):
     """Raised when MySQL cannot be reached or a query fails."""
 
 
+class DataRuleError(DatabaseError):
+    """A write broke a table rule: a duplicate UNIQUE value (MySQL error 1062), a foreign key that
+    points nowhere (1452) or a CHECK constraint (3819).  The API turns this into a 409 or 400."""
+
+    DUPLICATE, MISSING_PARENT = 1062, 1452
+
+    def __init__(self, errno, detail):
+        super().__init__("That change breaks a database rule.")
+        self.errno, self.detail = errno, detail
+
 def get_connection(config=None):
     """Open one connection using the settings of the current environment."""
     cfg = config or get_config()
@@ -45,6 +55,10 @@ def connection(config=None):
     try:
         yield conn
         conn.commit()
+    except pymysql.IntegrityError as e:
+        conn.rollback()
+        log.warning("Write refused by a database rule, changes rolled back: %s", e)
+        raise DataRuleError(e.args[0] if e.args else 0, str(e)) from e
     except pymysql.MySQLError as e:
         conn.rollback()
         log.error("Database error, changes rolled back: %s", e)
