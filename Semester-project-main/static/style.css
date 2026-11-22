@@ -160,3 +160,16 @@ summary{cursor:pointer}
 .rc-hint{font-size:.72rem;color:#444;margin:1rem 0 0}
 .rc-status{font-size:.82rem;font-weight:600;color:#0b5a3f;margin-bottom:1rem}.rc-status i{color:#18a34a}
 .rc-fieldset{padding-top:.9rem}
+
+/* ---- Step 5: API-driven pages ---- */
+.state { padding: 1.25rem .5rem; text-align: center; font-size: .9rem; }
+@keyframes row-flash { from { background: #fff3b0; } to { background: transparent; } }
+.row-flash > td { animation: row-flash 2.5s ease-out; }
+.kpi-tile .kpi-val:empty::after, .kpi-val.loading::after { content: "…"; }
+.live-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: 1.5rem 0 .75rem; }
+.live-head h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+.status-pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+.status-ok { background: #d1f2df; color: #136c3a; }
+.status-bad { background: #fde1e1; color: #a11d1d; }
+.whatif-runs li { font-size: .8rem; }
+li.row-flash { animation: row-flash 2.5s ease-out; }

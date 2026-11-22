@@ -22,7 +22,9 @@ pytestmark = pytest.mark.skipif(not _database_available(), reason="MySQL test da
 def client():
     db.init_database()  # fresh demo data for every test
     app = create_app("testing", USE_DATABASE=True)
-    return app.test_client()
+    client = app.test_client()
+    client.post("/login", data={"email": "jiara.martins@fintr.com", "password": "demo123"})
+    return client
 
 
 def _sql(statement, params=()):
@@ -89,11 +91,19 @@ def test_settings_are_saved_in_mysql_and_can_be_reset(client):
     assert repo.load_snapshot()["rates"]["GBP"] == 23.5
 
 
-def test_login_creates_or_finds_the_user(client):
-    client.post("/login", data={"name": "Test Student", "email": "Test.Student@fintr.com",
-                                "password": "secret1", "role": "Finance"})
-    rows = _sql("SELECT name FROM users WHERE email = 'test.student@fintr.com'")
-    assert rows and rows[0]["name"] == "Test Student"
+def test_login_checks_the_password_and_uses_the_role_from_mysql():
+    db.init_database()
+    client = create_app("testing", USE_DATABASE=True).test_client()
+    assert client.get("/dashboard").status_code == 302  # pages need a login
+    bad = client.post("/login", data={"email": "lerato.dlamini@fintr.com", "password": "wrong-one"})
+    assert bad.status_code == 401 and b"Wrong email or password" in bad.data
+    ok = client.post("/login", data={"email": "Lerato.Dlamini@fintr.com", "password": "demo123"})
+    assert ok.status_code == 302
+    with client.session_transaction() as s:
+        assert s["role"] == "Senior management" and s["api_token"]
+    assert client.get("/dashboard").status_code == 200
+    client.get("/logout")
+    assert client.get("/dashboard").status_code == 302
 
 
 def test_pdf_download_is_logged(client):

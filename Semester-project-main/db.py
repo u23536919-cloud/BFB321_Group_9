@@ -35,6 +35,7 @@ class DataRuleError(DatabaseError):
         super().__init__("That change breaks a database rule.")
         self.errno, self.detail = errno, detail
 
+
 def get_connection(config=None):
     """Open one connection using the settings of the current environment."""
     cfg = config or get_config()

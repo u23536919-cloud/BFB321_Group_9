@@ -4,19 +4,21 @@
 {% block content %}
 {% macro money(v, signed=false) -%}{{ '+' if signed and v >= 0 }}{{ '-' if v < 0 }}ZAR {{ v|abs|n }}{%- endmacro %}
 <h1 class="region-title">Break Even - {{ short }} Region</h1>
-<form method="post" class="needs-validation" novalidate>
+<form method="post" class="needs-validation" id="region-form" novalidate data-code="{{ code }}" data-rate="{{ rate }}">
+{% if api_ready and not can_edit %}<div class="alert alert-info small">Your role ({{ user_role }}) is read-only: you can see the results and past runs, but only Finance or a Supply chain planner can change the inputs.</div>{% endif %}
+<div id="form-msg" aria-live="polite"></div>
 <div class="region-grid">
 
  <section class="area-inputs" aria-labelledby="in-h">
   <h2 class="r-badge" id="in-h">Inputs</h2>
   <label class="r-label" for="direct_freight_zar">Shipping cost per order <span>({{ cur.axis }})</span></label>
-  <input class="r-field" id="direct_freight_zar" name="direct_freight_zar" type="number" min="0" step="any" value="{{ vals.direct_freight_zar }}" required>
+  <input class="r-field" id="direct_freight_zar" name="direct_freight_zar" type="number" min="0" step="any" value="{{ vals.direct_freight_zar }}" data-zar="{{ zar_vals.direct_freight_zar }}" required>
   <label class="r-label" for="setup_zar">Warehouse setup cost <span>({{ cur.axis }})</span></label>
-  <input class="r-field" id="setup_zar" name="setup_zar" type="number" min="0" step="any" value="{{ vals.setup_zar }}" required>
+  <input class="r-field" id="setup_zar" name="setup_zar" type="number" min="0" step="any" value="{{ vals.setup_zar }}" data-zar="{{ zar_vals.setup_zar }}" required>
   <label class="r-label" for="local_delivery_zar">Local fulfilment cost <span>({{ cur.axis }} per order)</span></label>
-  <input class="r-field" id="local_delivery_zar" name="local_delivery_zar" type="number" min="0" step="any" value="{{ vals.local_delivery_zar }}" required>
+  <input class="r-field" id="local_delivery_zar" name="local_delivery_zar" type="number" min="0" step="any" value="{{ vals.local_delivery_zar }}" data-zar="{{ zar_vals.local_delivery_zar }}" required>
   <label class="r-label" for="rent_zar_month">Monthly warehouse rent <span>({{ cur.axis }})</span></label>
-  <input class="r-field" id="rent_zar_month" name="rent_zar_month" type="number" min="0" step="any" value="{{ vals.rent_zar_month }}" required>
+  <input class="r-field" id="rent_zar_month" name="rent_zar_month" type="number" min="0" step="any" value="{{ vals.rent_zar_month }}" data-zar="{{ zar_vals.rent_zar_month }}" required>
   <label class="r-label" for="volume">Monthly order volume <span>(units)</span></label>
   <input class="r-field" id="volume" name="volume" type="number" min="0" step="any" value="{{ vol }}" required>
   <div class="invalid-feedback r-invalid">Enter a number of 0 or more in every field.</div>
@@ -30,21 +32,23 @@
   {% endfor %}
  </section>
 
- <div class="area-calc"><button class="btn-calc">Calculate</button></div>
+ <div class="area-calc"><button class="btn-calc" type="submit" {{ "disabled" if api_ready and not can_edit }}>Calculate</button></div>
 
  <section class="area-chart" aria-labelledby="ch-h">
   <h2 class="r-badge r-badge-center" id="ch-h">Break Even - {{ short }} Region</h2>
   <div class="r-chart"><canvas id="chart" role="img" aria-label="Total monthly cost in thousands of South African rand for shipping from South Africa and for using a regional warehouse, against monthly volume{% if calc.be %}. The lines cross at about {{ '%d'|format(calc.be) }} units per month{% endif %}"></canvas></div>
-  <p class="r-summary" role="status">
+  <p class="r-summary" role="status" id="r-summary">
    {% if calc.be is none %}No break-even: the warehouse costs more per unit than direct shipping, so volume alone will not make it cheaper.
    {% else %}A regional warehouse costs less above <strong>{{ calc.be|n }}</strong> units per month (decision threshold with a {{ margin }}% margin: {{ calc.threshold|n }}). At {{ vol|n }} units: <strong>{{ calc.rec }}</strong>.{% endif %}
   </p>
   <div class="scen-wrap"><table class="scen-table">
    <caption class="visually-hidden">Scenario comparison for {{ name }}</caption>
    <thead><tr><th scope="col">Scenario</th><th scope="col">Break-even</th><th scope="col">Cost impact</th><th scope="col">Recommendation</th></tr></thead>
-   <tbody>{% for r in calc.scen %}
+   <tbody id="scen-rows">{% for r in calc.scen %}
     <tr><th scope="row">{{ r.label }}</th><td>{{ r.be|n }}</td><td>{% if r.impact is none %}&ndash;{% else %}{{ money(r.impact, true) }}{% endif %}</td><td>{{ r.rec }}</td></tr>{% endfor %}
    </tbody></table></div>
+  {% if api_ready %}<div class="whatif-runs mt-3"><h3 class="h6 mb-1">Recent what-if runs <span class="small text-muted">(saved in MySQL)</span></h3>
+   <ul class="list-unstyled mb-2" id="runs"></ul></div>{% endif %}
   <p class="r-note">Break-even is in units per month. Cost impact is the change in the monthly saving from a regional warehouse compared with the base case, in ZAR (a plus sign favours the warehouse).</p>
  </section>
 </div>
@@ -54,17 +58,83 @@
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script>
-const c={{ calc.curve|tojson }}, be={{ calc.be|tojson }};
-const k=c.map(r=>({x:r.q,d:r.direct/1000,w:r.warehouse/1000}));
-const ymax=Math.max(...k.map(r=>Math.max(r.d,r.w)));
 Chart.defaults.color='#111';Chart.defaults.font.family='Poppins, system-ui, sans-serif';
-const ds=[
- {label:'Ship from SA',data:k.map(r=>({x:r.x,y:r.d})),borderColor:'#4a7df0',backgroundColor:'#4a7df0',pointRadius:3,borderWidth:2,showLine:true},
- {label:'Use warehouse',data:k.map(r=>({x:r.x,y:r.w})),borderColor:'#9a78d6',backgroundColor:'#9a78d6',pointRadius:3,borderWidth:2,showLine:true}];
-if(be!==null)ds.push({label:'New Break Even',data:[{x:be,y:0},{x:be,y:ymax*1.1}],borderColor:'#f5c518',backgroundColor:'#f5c518',borderDash:[4,3],borderWidth:2,pointRadius:0,showLine:true});
-new Chart(document.getElementById('chart'),{type:'scatter',data:{datasets:ds},options:{maintainAspectRatio:false,
- plugins:{legend:{position:'top',labels:{usePointStyle:true,boxWidth:6,font:{size:11}}}},
- scales:{x:{type:'linear',min:0,grid:{color:'rgba(0,0,0,.12)'},title:{display:true,text:'Monthly Sales Volume (units)',font:{weight:'600'}},ticks:{callback:v=>v.toLocaleString('en-US')}},
- y:{min:0,grid:{color:'rgba(0,0,0,.12)'},title:{display:true,text:'Total Cost in Thousands (ZAR)',font:{weight:'600'}}}}}});
+let chart = null;
+/* draw (or redraw) the cost lines; costs arrive in ZAR and are shown in thousands */
+function drawChart(curve, be) {
+  const k = curve.map(r => ({x: r.q, d: r.direct / 1000, w: r.warehouse / 1000}));
+  const ymax = Math.max(...k.map(r => Math.max(r.d, r.w)));
+  const ds = [
+    {label:'Ship from SA',data:k.map(r=>({x:r.x,y:r.d})),borderColor:'#4a7df0',backgroundColor:'#4a7df0',pointRadius:3,borderWidth:2,showLine:true},
+    {label:'Use warehouse',data:k.map(r=>({x:r.x,y:r.w})),borderColor:'#9a78d6',backgroundColor:'#9a78d6',pointRadius:3,borderWidth:2,showLine:true}];
+  if (be !== null) ds.push({label:'New Break Even',data:[{x:be,y:0},{x:be,y:ymax*1.1}],borderColor:'#f5c518',backgroundColor:'#f5c518',borderDash:[4,3],borderWidth:2,pointRadius:0,showLine:true});
+  if (chart) { chart.data.datasets = ds; chart.update(); return; }
+  chart = new Chart(document.getElementById('chart'),{type:'scatter',data:{datasets:ds},options:{maintainAspectRatio:false,
+    plugins:{legend:{position:'top',labels:{usePointStyle:true,boxWidth:6,font:{size:11}}}},
+    scales:{x:{type:'linear',min:0,grid:{color:'rgba(0,0,0,.12)'},title:{display:true,text:'Monthly Sales Volume (units)',font:{weight:'600'}},ticks:{callback:v=>v.toLocaleString('en-US')}},
+    y:{min:0,grid:{color:'rgba(0,0,0,.12)'},title:{display:true,text:'Total Cost in Thousands (ZAR)',font:{weight:'600'}}}}}});
+}
+drawChart({{ calc.curve|tojson }}, {{ calc.be|tojson }});
+{% if api_ready %}
+/* Step 5 flow 1: Calculate -> PUT /api/regions/<code>/inputs (save the inputs in MySQL)
+ *                         -> POST /api/scenarios (run the break-even model, save the run)
+ *                         -> redraw the chart, summary, table and recent runs from the replies. */
+const form = document.getElementById("region-form"), CODE = form.dataset.code, RATE = Number(form.dataset.rate);
+const MONEY = ["direct_freight_zar", "setup_zar", "local_delivery_zar", "rent_zar_month"], MARGIN = {{ margin }};
+const money = (v, signed) => (signed && v >= 0 ? "+" : "") + (v < 0 ? "-" : "") + "ZAR " + num(Math.abs(v));
+
+function readInputs() {
+  const out = {};
+  for (const k of MONEY) {
+    const input = form[k], shown = Number(input.value), stored = Number(input.dataset.zar);
+    // a value left as displayed keeps its exact stored ZAR amount (no rounding drift)
+    out[k] = Math.abs(shown - Math.round(stored * RATE * 100) / 100) < 0.005 ? stored : shown / RATE;
+  }
+  out.monthly_volume = Number(form.volume.value);
+  return out;
+}
+function showResults(a, volume) {
+  drawChart(a.curve, a.be);
+  document.getElementById("r-summary").innerHTML = a.be === null
+    ? "No break-even: the warehouse costs more per unit than direct shipping, so volume alone will not make it cheaper."
+    : `A regional warehouse costs less above <strong>${num(a.be)}</strong> units per month (decision threshold with a ${MARGIN}% margin: ${num(a.threshold)}). At ${num(volume)} units: <strong>${esc(a.rec)}</strong>.`;
+  document.getElementById("scen-rows").innerHTML = a.scen.map(r => `<tr><th scope="row">${esc(r.label)}</th>
+    <td>${num(r.be)}</td><td>${r.impact === null ? "&ndash;" : money(r.impact, true)}</td><td>${esc(r.rec)}</td></tr>`).join("");
+}
+async function loadRuns() {
+  const list = document.getElementById("runs");
+  showState(list, "loading", "Loading recent runs…");
+  try {
+    const body = await api("GET", `/api/scenarios?region=${CODE}&per_page=5`);
+    if (!body.data.length) return showState(list, "empty", "No what-if runs saved yet.");
+    list.innerHTML = body.data.map(s => `<li id="run-${s.id}"><strong>#${s.id}</strong> ${new Date(s.created_at).toLocaleString("en-GB", {dateStyle: "short", timeStyle: "short"})}
+      · ${num(s.monthly_volume)} units · freight ${s.freight_pct > 0 ? "+" : ""}${s.freight_pct}% · growth ${s.growth_pct > 0 ? "+" : ""}${s.growth_pct}%
+      → <em>${esc(s.recommendation)}</em>${s.created_by ? ` <span class="text-muted">(${esc(s.created_by)})</span>` : ""}</li>`).join("");
+  } catch (err) { showState(list, "error", err.message, loadRuns); }
+}
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!form.checkValidity()) return;  // the browser's own checks run first (base.html)
+  const msg = document.getElementById("form-msg"), inputs = readInputs();
+  msg.innerHTML = "";
+  const wi = Object.fromEntries(["freight", "customs", "lease", "growth"].map(k => [`${k}_pct`, Number(form["wi_" + k].value)]));
+  try {
+    const run = await busy(form.querySelector(".btn-calc"), async () => {
+      await api("PUT", `/api/regions/${CODE}/inputs`, inputs);
+      return api("POST", "/api/scenarios", {region: CODE, monthly_volume: inputs.monthly_volume, ...wi});
+    });
+    for (const k of MONEY) form[k].dataset.zar = inputs[k];  // these are now the stored values
+    showResults(run.analysis, inputs.monthly_volume);
+    toast(`Saved and calculated (run #${run.id}): ${run.scenario.recommendation}.`);
+    await loadRuns();
+    document.getElementById(`run-${run.id}`)?.classList.add("row-flash");
+  } catch (err) {
+    if (err.status === 401) return;
+    const details = Object.entries(err.details || {}).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join(" ");
+    msg.innerHTML = `<div class="alert alert-danger py-2 small" role="alert">${esc(err.message)} ${esc(details)}</div>`;
+  }
+});
+loadRuns();
+{% endif %}
 </script>
 {% endblock %}

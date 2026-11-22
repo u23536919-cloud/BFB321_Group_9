@@ -273,6 +273,65 @@
           },
           "scenario": {
             "$ref": "#/components/schemas/Results"
+          },
+          "analysis": {
+            "type": "object",
+            "description": "The region page's sensitivity table and cost curve",
+            "properties": {
+              "be": {
+                "type": "number",
+                "nullable": true
+              },
+              "threshold": {
+                "type": "number",
+                "nullable": true
+              },
+              "rec": {
+                "type": "string"
+              },
+              "saving": {
+                "type": "number"
+              },
+              "curve": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "q": {
+                      "type": "number"
+                    },
+                    "direct": {
+                      "type": "number"
+                    },
+                    "warehouse": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "scen": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "be": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "impact": {
+                      "type": "number",
+                      "nullable": true
+                    },
+                    "rec": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -678,6 +737,169 @@
           }
         },
         "minProperties": 1
+      },
+      "Kpis": {
+        "type": "object",
+        "properties": {
+          "totals": {
+            "type": "object",
+            "properties": {
+              "products": {
+                "type": "integer"
+              },
+              "consumer_orders": {
+                "type": "integer"
+              },
+              "consumer_units": {
+                "type": "integer"
+              },
+              "revenue_zar": {
+                "type": "number"
+              },
+              "shipments": {
+                "type": "integer"
+              },
+              "late_shipments": {
+                "type": "integer"
+              },
+              "late_rate": {
+                "type": "number",
+                "nullable": true
+              },
+              "courier_spend_zar": {
+                "type": "number"
+              }
+            }
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "consumer_orders": {
+                  "type": "integer"
+                },
+                "consumer_units": {
+                  "type": "integer"
+                },
+                "avg_orders_per_month": {
+                  "type": "number"
+                },
+                "avg_units_per_month": {
+                  "type": "number"
+                },
+                "planning_volume": {
+                  "type": "number"
+                },
+                "break_even_volume": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "actual_share_of_break_even": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "recommendation_at_actual_demand": {
+                  "type": "string"
+                },
+                "recommendation_at_planning_volume": {
+                  "type": "string"
+                },
+                "direct_cost_per_unit_zar": {
+                  "type": "number",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "stock_points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "region": {
+                  "type": "string"
+                },
+                "units_in": {
+                  "type": "integer"
+                },
+                "units_out": {
+                  "type": "integer"
+                },
+                "on_hand": {
+                  "type": "integer"
+                },
+                "avg_units_out_per_month": {
+                  "type": "number"
+                },
+                "months_of_cover": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "reorder_point": {
+                  "type": "integer"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "OK",
+                    "Restock now",
+                    "Out of stock"
+                  ]
+                }
+              }
+            }
+          },
+          "unit_cost_by_route_zar": {
+            "type": "object",
+            "properties": {
+              "direct_to_us_customer": {
+                "type": "number",
+                "nullable": true
+              },
+              "bulk_to_us_stock_point": {
+                "type": "number",
+                "nullable": true
+              }
+            }
+          },
+          "monthly_units": {
+            "type": "object",
+            "properties": {
+              "months": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "uk": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "us": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   },
@@ -1797,7 +2019,7 @@
       },
       "post": {
         "summary": "Record a new order (counts in the region's actual_demand straight away)",
-        "description": "Roles: Finance, Supply chain planner.",
+        "description": "Roles: Finance, Supply chain planner. An order sent from a stock point cannot use more units than are in stock.",
         "tags": [
           "Fintr data"
         ],
@@ -2195,6 +2417,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid or expired token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/kpis": {
+      "get": {
+        "summary": "Live dashboard KPIs worked out from MySQL (orders, stock, shipments, costs, demand vs break-even)",
+        "tags": [
+          "Dashboard"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "KPIs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Kpis"
                 }
               }
             }

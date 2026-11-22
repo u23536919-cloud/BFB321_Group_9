@@ -1,10 +1,10 @@
-
---Fintr break-even tool (BFB 321, Group 9)  -  demo seed data
+-- =====================================================================
+-- Fintr break-even tool (BFB 321, Group 9)  -  demo seed data
 -- Run AFTER schema.sql (python db.py init runs both).
 -- The model inputs at the top (region_cost_inputs, scenarios, reports) are
 -- illustrative placeholders.  The section at the bottom is Fintr's ACTUAL data.
 -- Parent tables are filled before the child tables that point to them.
-
+-- =====================================================================
 
 INSERT INTO roles (name) VALUES
     ('Finance'),
@@ -72,10 +72,11 @@ INSERT INTO reports (region_id, user_id, sections, file_name) VALUES
     ((SELECT id FROM regions WHERE code = 'us'), (SELECT id FROM users WHERE email = 'lerato.dlamini@fintr.com'),
      'be,savings,rec',      'Fintr_report_US_2026-01-20.pdf');
 
+-- =====================================================================
 -- FINTR'S ACTUAL DATA (data pack as at 30 October 2026, from Fintr's
 -- accounting system and courier invoices).  All amounts in ZAR.
 -- Shipments and invoices use fixed ids so the rows can point to each other.
-
+-- =====================================================================
 
 -- The data pack gives no SKU or product name, so these two are our labels.
 INSERT INTO products (sku, name, ex_factory_zar, landed_cost_zar, retail_price_zar) VALUES
