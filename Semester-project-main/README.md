@@ -13,22 +13,22 @@ Model cost calculations, dashboard charts and reports use ZAR as the common curr
 | Name | Student number | GitHub username |
 | --- | --- | --- |
 | Farah Hassim | u23536919 | u23536919-cloud |
-| Katarina Stamenic | u23635119 | *(add username)* |
-| Keratile Maboka | u24648702 | *(add username)* |
+| Katarina Stamenic | u23635119 | Katarina-09 |
+| Keratile Maboka | u24648702 | Keratila_M |
 
 ## Task Allocation
 
-*(Fill this in so it matches the Git history.)*
 
 | Task | Member(s) |
 | --- | --- |
-| Frontend pages (Step 1) | |
-| Break-even model and tests (Step 2) | |
-| REST API, JWT login and API tests (Step 4) | |
-| Pages wired to the API, live KPIs, real login (Step 5) | |
-| ERD, `schema.sql` and `seed.sql` (Step 3) | |
-| `db.py`, `repository.py` and connecting Flask to MySQL (Step 3) | |
-| README, `.env.example` and setup notes | |
+| Frontend pages (Step 1) | Farah Hassim, Keratile Maboka, Katarina Stamenic |
+| Break-even model and tests (Step 2) | Farah Hassim, Keratile Maboka, Katarina Stamenic |
+| ERD, `schema.sql` and `seed.sql` (Step 3) | Farah Hassim |
+| `db.py`, `repository.py` and connecting Flask to MySQL (Step 3) | Farah Hassim |
+| REST API, JWT login and API tests (Step 4) | Keratile Maboka |
+| Pages wired to the API, live KPIs, real login (Step 5) | Katarina Stamenic |
+| README, `.env.example` and setup notes | Farah Hassim, Keratile Maboka, Katarina Stamenic |
+| Report and video | Farah Hassim, Keratile Maboka, Katarina Stamenic |
 
 ## Database Design (Step 3)
 
@@ -36,7 +36,7 @@ The app stores its data in MySQL. The tables are defined in `database/schema.sql
 
 ![ERD](docs/erd.png)
 
-*Figure 1: Entity relationship diagram (generated from `schema.sql` by `docs/generate_erd.py`; a Mermaid copy is in `docs/erd_mermaid.md`).*
+*Figure 1: Entity relationship diagram of the tables in `database/schema.sql`.*
 
 | Table | Purpose |
 | --- | --- |
