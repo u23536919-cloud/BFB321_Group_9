@@ -305,7 +305,7 @@ Every write in the app already runs in a transaction: if a statement fails, `db.
 - `repository.py`: every SQL query (parameterised)
 - `models/breakeven.py`: standalone break-even model (formulae, units and assumptions are in the module docstring)
 - `database/schema.sql`, `database/seed.sql`: tables and demo data
-- `docs/`: ERD image, the script that draws it from `schema.sql`, and `openapi.json` (the API contract)
+- `docs/`: ERD image created in MySQL workbench, , and `openapi.json` (the API contract)
 - `templates/` and `static/`: Bootstrap frontend
 - `api/`: the REST API blueprint (Step 4)
 - `static/js/api.js`: the browser helpers that call the API, show loading/empty/error states and messages (Step 5)
