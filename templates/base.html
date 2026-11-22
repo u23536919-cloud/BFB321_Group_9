@@ -13,17 +13,17 @@
 <body>
 <header class="topbar">
  <button class="top-link d-lg-none" type="button" data-bs-toggle="collapse" data-bs-target="#side" aria-controls="side" aria-expanded="false" aria-label="Toggle menu"><i class="bi bi-list"></i></button>
- <a class="brand" href="{{ url_for('dashboard') }}" aria-label="Fintr dashboard">{{ logo(40) }}<span>Fintr</span></a>
+ <a class="brand" href="{{ url_for('pages.dashboard') }}" aria-label="Fintr dashboard">{{ logo(40) }}<span>Fintr</span></a>
  <div class="topbar-actions">
   <button class="top-link" type="button" data-bs-toggle="modal" data-bs-target="#helpModal"><i class="bi bi-question-circle" aria-hidden="true"></i><span class="d-none d-md-inline">Help</span></button>
-  <a class="top-link" href="{{ url_for('alerts') }}" aria-label="Notifications{% if alert_count %}, {{ alert_count }} new{% endif %}"><i class="bi bi-bell" aria-hidden="true"></i><span class="d-none d-md-inline">Notifications</span>{% if alert_count %}<span class="notif-dot" aria-hidden="true">{{ alert_count }}</span>{% endif %}</a>
+  <a class="top-link" href="{{ url_for('pages.alerts') }}" aria-label="Notifications{% if alert_count %}, {{ alert_count }} new{% endif %}"><i class="bi bi-bell" aria-hidden="true"></i><span class="d-none d-md-inline">Notifications</span>{% if alert_count %}<span class="notif-dot" aria-hidden="true">{{ alert_count }}</span>{% endif %}</a>
   <div class="dropdown">
    <button class="top-link" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-person-circle" aria-hidden="true"></i><span class="d-none d-md-inline">User profile</span><i class="bi bi-chevron-down chev" aria-hidden="true"></i></button>
    <ul class="dropdown-menu dropdown-menu-end">
     <li><span class="dropdown-item-text small"><strong>{{ user_name or 'Signed in' }}</strong>{% if user_role %}<br>{{ user_role }}{% endif %}</span></li>
     <li><hr class="dropdown-divider"></li>
-    <li><a class="dropdown-item" href="{{ url_for('settings') }}">Settings</a></li>
-    <li><a class="dropdown-item" href="{{ url_for('logout') }}">Log out</a></li>
+    <li><a class="dropdown-item" href="{{ url_for('pages.settings') }}">Settings</a></li>
+    <li><a class="dropdown-item" href="{{ url_for('pages.logout') }}">Log out</a></li>
    </ul>
   </div>
  </div>
@@ -32,16 +32,16 @@
 <div class="shell">
  <aside class="sidebar collapse d-lg-block" id="side">
   <nav aria-label="Main">
-   <a class="side-link {{ 'active' if page=='dashboard' }}" {% if page=='dashboard' %}aria-current="page"{% endif %} href="{{ url_for('dashboard') }}"><i class="bi bi-house-door" aria-hidden="true"></i>Dashboard</a>
+   <a class="side-link {{ 'active' if page=='dashboard' }}" {% if page=='dashboard' %}aria-current="page"{% endif %} href="{{ url_for('pages.dashboard') }}"><i class="bi bi-house-door" aria-hidden="true"></i>Dashboard</a>
    <div class="side-link side-label"><i class="bi bi-file-earmark-text" aria-hidden="true"></i>Scenario Comparison</div>
-   <a class="side-link side-sub {{ 'active' if page=='uk' }}" {% if page=='uk' %}aria-current="page"{% endif %} href="{{ url_for('region', code='uk') }}">{{ flag_uk() }}UK</a>
-   <a class="side-link side-sub {{ 'active' if page=='us' }}" {% if page=='us' %}aria-current="page"{% endif %} href="{{ url_for('region', code='us') }}">{{ flag_us() }}US</a>
+   <a class="side-link side-sub {{ 'active' if page=='uk' }}" {% if page=='uk' %}aria-current="page"{% endif %} href="{{ url_for('pages.region', code='uk') }}">{{ flag_uk() }}UK</a>
+   <a class="side-link side-sub {{ 'active' if page=='us' }}" {% if page=='us' %}aria-current="page"{% endif %} href="{{ url_for('pages.region', code='us') }}">{{ flag_us() }}US</a>
    <div class="side-link side-label"><i class="bi bi-database" aria-hidden="true"></i>Fintr data</div>
-   <a class="side-link side-sub {{ 'active' if page=='orders' }}" {% if page=='orders' %}aria-current="page"{% endif %} href="{{ url_for('orders') }}"><i class="bi bi-receipt" aria-hidden="true"></i>Orders</a>
-   <a class="side-link side-sub {{ 'active' if page=='products' }}" {% if page=='products' %}aria-current="page"{% endif %} href="{{ url_for('products') }}"><i class="bi bi-box-seam" aria-hidden="true"></i>Products</a>
-   <a class="side-link {{ 'active' if page=='alerts' }}" {% if page=='alerts' %}aria-current="page"{% endif %} href="{{ url_for('alerts') }}"><i class="bi bi-bell" aria-hidden="true"></i>Alerts &amp; Monitoring</a>
-   <a class="side-link {{ 'active' if page=='reports' }}" {% if page=='reports' %}aria-current="page"{% endif %} href="{{ url_for('reports') }}"><i class="bi bi-file-earmark-bar-graph" aria-hidden="true"></i>Reporting and export</a>
-   <a class="side-link {{ 'active' if page=='settings' }}" {% if page=='settings' %}aria-current="page"{% endif %} href="{{ url_for('settings') }}"><i class="bi bi-gear" aria-hidden="true"></i>Settings</a>
+   <a class="side-link side-sub {{ 'active' if page=='orders' }}" {% if page=='orders' %}aria-current="page"{% endif %} href="{{ url_for('pages.orders') }}"><i class="bi bi-receipt" aria-hidden="true"></i>Orders</a>
+   <a class="side-link side-sub {{ 'active' if page=='products' }}" {% if page=='products' %}aria-current="page"{% endif %} href="{{ url_for('pages.products') }}"><i class="bi bi-box-seam" aria-hidden="true"></i>Products</a>
+   <a class="side-link {{ 'active' if page=='alerts' }}" {% if page=='alerts' %}aria-current="page"{% endif %} href="{{ url_for('pages.alerts') }}"><i class="bi bi-bell" aria-hidden="true"></i>Alerts &amp; Monitoring</a>
+   <a class="side-link {{ 'active' if page=='reports' }}" {% if page=='reports' %}aria-current="page"{% endif %} href="{{ url_for('pages.reports') }}"><i class="bi bi-file-earmark-bar-graph" aria-hidden="true"></i>Reporting and export</a>
+   <a class="side-link {{ 'active' if page=='settings' }}" {% if page=='settings' %}aria-current="page"{% endif %} href="{{ url_for('pages.settings') }}"><i class="bi bi-gear" aria-hidden="true"></i>Settings</a>
   </nav>
  </aside>
  <main class="content {% block main_class %}{% endblock %}">

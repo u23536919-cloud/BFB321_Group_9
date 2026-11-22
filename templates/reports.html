@@ -15,7 +15,7 @@
   </fieldset>
   <button class="rc-btn" type="submit" name="g" value="1">Generate Report</button>
   <div class="rc-label">Export</div>
-  <button class="rc-btn" type="submit" formaction="{{ url_for('reports_pdf') }}" name="g" value="1"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF</button>
+  <button class="rc-btn" type="submit" formaction="{{ url_for('pages.reports_pdf') }}" name="g" value="1"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF</button>
   <p class="rc-hint">Choose a region and the analysis to include, then press Generate Report. PDF downloads the same report.</p>
  </form>
 

@@ -34,7 +34,7 @@
   <h2 id="ins-h">Key Insights</h2>
   {% if kpi.be is none %}<p>Under the current assumptions a regional warehouse does not become cheaper than shipping from SA at any volume.</p>
   {% else %}<p>At volumes above <strong>{{ '%d'|format(kpi.be) }}</strong> units per month, establishing a regional warehouse becomes the most cost-effective option.</p>{% endif %}
-  <div class="text-center"><a class="btn-detail" href="{{ url_for('reports') }}">View Detailed Results</a></div>
+  <div class="text-center"><a class="btn-detail" href="{{ url_for('pages.reports') }}">View Detailed Results</a></div>
  </section></div>
 </div>
 

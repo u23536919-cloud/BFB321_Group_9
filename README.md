@@ -32,6 +32,8 @@ Model cost calculations, dashboard charts and reports use ZAR as the common curr
 
 ## Database Design (Step 3)
 
+**About the seed data:** the bottom half of `seed.sql` is Fintr's complete data pack (1 product, 8 orders, 4 shipments, 5 invoices, as at 30 October 2026). We did not add made-up orders, because the dashboard KPIs are worked out from this data and the tests check they match the data pack exactly.
+
 The app stores its data in MySQL. The tables are defined in `database/schema.sql` and filled with demo data by `database/seed.sql`.
 
 ![ERD](docs/erd.png)
@@ -132,7 +134,7 @@ python -m pytest
 python app.py
 ```
 
-Open <http://127.0.0.1:5000> and log in with `jiara.martins@fintr.com` / `demo123` (more users under [Test Sign-in](#test-sign-in)). The database tests are skipped automatically if the test database is not available.
+Open <http://127.0.0.1:5000> and log in with `jiara.martins@fintr.com` / `demo123` (more users under [Test Sign-in](#test-sign-in)). **All 73 tests need the MySQL test database to run in full.** Create it once (`CREATE DATABASE fintr_breakeven_test;`) and set `DB_TEST_NAME` in `.env`. Without it, the 29 database tests are skipped, not failed; run `python -m pytest -rs` to see why a test was skipped.
 
 ## REST API (Step 4)
 
@@ -295,7 +297,9 @@ Every write in the app already runs in a transaction: if a statement fails, `db.
 
 ## Project Structure
 
-- `app.py`: Flask pages (uses the model and the database)
+- `app.py`: creates the Flask app and registers the two blueprints (application factory)
+- `pages.py`: the website pages (Blueprint "pages")
+- `services.py`: shared helpers used by the pages and the API
 - `config.py`: development, testing and production settings
 - `db.py`: MySQL connection and the `init` command
 - `repository.py`: every SQL query (parameterised)

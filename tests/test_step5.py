@@ -115,3 +115,21 @@ def test_region_calculate_flow_saves_inputs_and_returns_the_page_analysis():
     assert labels[0] == "Base case" and labels[-1] == "Your what-if (sliders)"
     assert len(body["analysis"]["curve"]) == 13
     assert b'value="1200.0"' in client.get("/region/us").data  # the page shows the saved volume
+
+
+# ---- review fixes: JSON 404 for unknown API URLs, page routes in their own blueprint ----------------
+@needs_db
+def test_unknown_api_url_returns_json_404_not_the_login_page():
+    client = _client()
+    for headers in (_token(client), {}):  # with a valid token and without one
+        r = client.get("/api/nothing", headers=headers)
+        assert r.status_code == 404 and r.is_json
+        assert r.get_json()["error"]["code"] == "not_found"
+    assert client.get("/no-such-page").status_code == 404
+
+
+def test_page_routes_live_in_their_own_blueprint():
+    app = create_app("testing", USE_DATABASE=False)
+    assert "pages" in app.blueprints and "api" in app.blueprints
+    endpoints = {rule.endpoint for rule in app.url_map.iter_rules()}
+    assert {"pages.dashboard", "pages.orders", "pages.products", "pages.login"} <= endpoints
