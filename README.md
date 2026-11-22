@@ -81,7 +81,7 @@ You need Python 3.10 or newer and MySQL 8 (or MariaDB 10.5+).
 
 ```bash
 git clone https://github.com/u23536919-cloud/BFB321_Group_9.git
-cd BFB321_Group_9/Semester-project-main
+cd BFB321_Group_9
 ```
 
 ### 2. Create a virtual environment and install the requirements
