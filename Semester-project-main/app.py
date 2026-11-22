@@ -1,7 +1,9 @@
 """We used AI to help build our frontend model.
-This values displayed on the dashboard are defualt or dummy values. We have not reieved values from Fintr as of yet.
-Step 1 demo server. Pages call the Step 2 model directly; Steps 4-5 replace this with
-Blueprints + REST endpoints. Step 3 added MySQL (see db.py, repository.py, database/). Login is a visual placeholder (no real auth yet)."""
+The break-even cost inputs on the region pages are still default values. Fintr's actual orders, shipments and invoices
+(data pack, 30 October 2026) are in MySQL and drive the dashboard's live KPIs.
+Step 1 demo server. Pages call the Step 2 model directly. Step 3 added MySQL (see db.py, repository.py,
+database/). Step 4 added the REST API: a Blueprint in api/ with JWT login (see README, API section).
+Step 5 wired the pages to the API (static/js/api.js) and made the website login check real passwords."""
 from collections import OrderedDict
 from datetime import date
 from dataclasses import fields, replace
@@ -14,7 +16,9 @@ from config import get_config  # settings per environment (development / testing
 from db import DatabaseError  # raised when MySQL is down or a query fails
 from models import breakeven as m
 from report_pdf import build_report_pdf
-from api import init_api 
+from api import init_api  # Step 4: REST API blueprint (api/)
+from api.auth import EDITOR_ROLES, create_token
+from werkzeug.security import check_password_hash
 
 REGIONS = {  
     "uk": {"name": "United Kingdom", "volume": 780, "over": {}},
@@ -237,19 +241,27 @@ def create_app(config_name=None, **overrides):
     app.config.update(overrides)
     if not app.config["SECRET_KEY"]:
         raise RuntimeError("SECRET_KEY is not set. Add it to your .env file.")
-    logging.basicConfig(level=app.config["LOG_LEVEL"], format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # log lines have a time, a level and the message; LOG_FILE in .env also keeps them in a file
+    handlers = [logging.StreamHandler()]
+    if app.config.get("LOG_FILE"):
+        handlers.append(logging.FileHandler(app.config["LOG_FILE"], encoding="utf-8"))
+    logging.basicConfig(level=app.config["LOG_LEVEL"], format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                        handlers=handlers)
 
     # if MySQL is down we show a friendly page instead of a raw error
     @app.errorhandler(DatabaseError)
     def database_problem(e):
         app.logger.error("Database problem: %s", e)
         return render_template("error.html", title="Database unavailable", msg=str(e)), 503
+
     
+    # Step 4: the REST API under /api (see the api/ package).  The API reuses the same helpers as
+    # the pages, so both always show the same numbers.
     app.extensions["fintr"] = {"inputs": region_inputs, "volume": region_volume, "name": region_name,
                                "use_db": use_db, "refresh": refresh_snapshot, "regions": REGIONS,
                                "margin": MARGIN}
     init_api(app)
-    
+
     @app.template_filter("n")
     def n(v, d=0):
         return "n/a" if v is None else f"{v:,.{d}f}"
@@ -258,20 +270,49 @@ def create_app(config_name=None, **overrides):
     def index():
         return redirect(url_for("login"))
 
+    # ---- login (Step 5: real passwords) ---------------------------------------------------------
+    # With the database on, the email and password are checked against the users table (the
+    # password is stored only as a salted hash).  The user's role comes from the database.  The login
+    # also creates an API token, which the pages use to call the REST API (api/).
+    # With USE_DATABASE=false (demo mode, no accounts) any email works and the role is picked.
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if request.method == "POST":
-            session["name"] = request.form.get("name", "").strip()[:60]
-            session["role"] = request.form.get("role", "")[:40]
+            email = request.form.get("email", "").strip().lower()[:120]
+            password = request.form.get("password", "")
+            if not email or not password:
+                flash("Enter your work email and password.", "danger")
+                return render_template("login.html", email=email), 400
             if use_db():
-                # no password check yet (real login comes later): we find or create the user in MySQL
-                email = request.form.get("email", "").strip().lower()[:120]
-                if not email or not session["role"]:
-                    flash("Enter your work email and select your role.", "danger")
-                    return render_template("login.html")
-                session["user_id"] = repo.upsert_user(session["name"] or email.split("@")[0], email, session["role"])
-            return redirect(url_for("dashboard"))
-        return render_template("login.html")
+                user = repo.find_user_by_email(email)
+                if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
+                    app.logger.warning("Failed website login for %s", email)
+                    flash("Wrong email or password.", "danger")
+                    return render_template("login.html", email=email), 401
+                session.clear()
+                session.update(user_id=user["id"], name=user["name"], role=user["role"], email=user["email"],
+                               api_token=create_token(user))
+            else:
+                session.clear()
+                session.update(name=email.split("@")[0], role=request.form.get("role", "Finance")[:40], email=email)
+            nxt = request.args.get("next", "")
+            # only go back to a page on this site (never to another website)
+            return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else url_for("dashboard"))
+        return render_template("login.html", email="")
+
+    @app.route("/logout")
+    def logout():
+        session.clear()
+        flash("You are logged out.", "success")
+        return redirect(url_for("login"))
+
+    # With the database on, every page needs a login (the API checks its own token).
+    @app.before_request
+    def require_login():
+        open_pages = {"login", "logout", "static", "index"}
+        if (use_db() and request.endpoint not in open_pages and not (request.endpoint or "").startswith("api.")
+                and "user_id" not in session):
+            return redirect(url_for("login", next=request.full_path.rstrip("?")))
 
     #This function collects the key numbers for one region (break-even, cost per unit, progress and recommendations)
     def summary(code):
@@ -312,7 +353,9 @@ def create_app(config_name=None, **overrides):
         except DatabaseError:  # database down: still show the error page
             count = 0
         return {"user_name": session.get("name", ""), "user_role": session.get("role", ""),
-                "alert_count": count}
+                "alert_count": count, "api_token": session.get("api_token", ""),
+                "api_ready": use_db() and bool(session.get("api_token")),
+                "can_edit": session.get("role") in EDITOR_ROLES}
 
     #overview() works out the combined UK + US numbers shown on the dashboard
     def overview():
@@ -361,6 +404,15 @@ def create_app(config_name=None, **overrides):
         return render_template("dashboard.html", kpi=kpi, curve=curve, page="dashboard",
                                updated=date.today().strftime("%d %b %Y")) # uses kpi and curve to create and return the dashboard.html page 
     # the function also displays the date and page name 
+
+    # Step 5: these two pages are filled in the browser from the REST API (see static/js/api.js)
+    @app.route("/orders")
+    def orders():
+        return render_template("orders.html", page="orders")
+
+    @app.route("/products")
+    def products():
+        return render_template("products.html", page="products")
 
     @app.route("/settings", methods=["GET", "POST"])
     # this functions gives information to the settings page
@@ -515,6 +567,8 @@ def create_app(config_name=None, **overrides):
         return {"be": be, "threshold": m.decision_threshold(p, MARGIN), "rec": m.recommend(p, vol, MARGIN),
                 "saving": m.monthly_saving(p, vol), "curve": m.cost_curve(p, top, 13), "scen": scen}
 
+    app.extensions["fintr"]["analysis"] = build_results  # the API sends the same table + chart data
+
     @app.route("/region/<code>", methods=["GET", "POST"])
     def region(code):
         if code not in REGIONS:
@@ -552,8 +606,10 @@ def create_app(config_name=None, **overrides):
         if calc is None:
             calc = build_results(p, vol, wi)
         vals = {k: round(getattr(p, k) * rate, 2) for k in MAIN_FIELDS}
+        zar_vals = {k: getattr(p, k) for k in MAIN_FIELDS}  # exact stored ZAR values (for the API)
         return render_template("region.html", code=code, name=region_name(code), vals=vals, vol=vol, wi=wi,
-                               cur=CUR[code], page=code, margin=int(MARGIN * 100), calc=calc)
+                               cur=CUR[code], page=code, margin=int(MARGIN * 100), calc=calc,
+                               rate=rate, zar_vals=zar_vals)
 # the above region function allows users to fill in the relevant data with their own values. 
 # Once they click "Calculate", this function will use those input values to recalculate the results, updates the graph and sensitivity analysis and displays the updated page
    
@@ -561,4 +617,6 @@ def create_app(config_name=None, **overrides):
 
 # this starts the web app when app.py runs directly
 if __name__ == "__main__":
-    create_app().run(debug=True)
+    application = create_app()
+    # debug (with its error pages) only in development: production never shows stack traces
+    application.run(debug=application.config["DEBUG"])

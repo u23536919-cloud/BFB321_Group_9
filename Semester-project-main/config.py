@@ -23,6 +23,7 @@ class Config:
     DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
     DB_NAME = os.environ.get("DB_NAME", "fintr_breakeven")
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+    LOG_FILE = os.environ.get("LOG_FILE", "")  # optional: also write the log to this file
     JWT_EXPIRES_HOURS = float(os.environ.get("JWT_EXPIRES_HOURS", "8"))
     API_MAX_PER_PAGE = 100
     DEBUG = False

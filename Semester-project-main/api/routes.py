@@ -6,6 +6,7 @@ always agree."""
 import time
 from dataclasses import asdict, replace
 from datetime import datetime
+from math import ceil
 
 from flask import current_app, g, jsonify, request
 from werkzeug.security import check_password_hash
@@ -190,7 +191,9 @@ def run_scenario():
         scenario_id = repo.record_scenario(code, g.api_user["id"], volume, pct, out["break_even_volume"],
                                            out["monthly_saving_zar"], out["recommendation"])
     body = {"id": scenario_id, "region": code, "monthly_volume": volume, "scenario_volume": sq,
-            "changes_pct": pct, "base": results(p, volume), "scenario": out}
+            "changes_pct": pct, "base": results(p, volume), "scenario": out,
+            # the region page's sensitivity table and cost curve (same function the page uses)
+            "analysis": fintr()["analysis"](p, volume, pct)}
     return jsonify(to_json(body)), 201
 
 
@@ -362,9 +365,17 @@ def validate_order(data, partial=False):
     return out
 
 
-def check_order_is_consistent(order):
-    """Related data must agree: the product must exist and the route must deliver to the order's region."""
+def check_order_is_consistent(order, previous=None):
+    """Related data must agree: the product must exist, the route must deliver to the order's region,
+    and an order sent from a stock point cannot use more units than the stock point has.
+    previous is the order as it was before an update (its own units are given back first)."""
     problems = {}
+    on_hand = repo.stock_on_hand_for_route(order["route"])
+    if on_hand is not None:  # this route starts at a stock point, so the order uses its stock
+        if previous and previous["route"] == order["route"]:
+            on_hand += previous["units"]
+        if order["units"] > on_hand:
+            problems["units"] = f"Only {on_hand} units are in stock at the start of route {order['route']}."
     if not repo.product_exists(order["sku"]):
         problems["sku"] = f"No product with SKU '{order['sku']}'."
     if repo.route_destination_region(order["route"]) != order["region"]:
@@ -410,7 +421,7 @@ def update_order(order_id):
     order = {k: current[k] for k in ("region", "sku", "route", "order_month", "order_type", "units",
                                      "shipment_id")}
     order.update(changes)
-    check_order_is_consistent(order)
+    check_order_is_consistent(order, previous=current)
     repo.save_order(order, order_id)
     return jsonify(to_json(repo.get_order(order_id)))
 
@@ -439,6 +450,83 @@ def get_shipment(shipment_id):
         raise ApiError(404, "not_found", f"No shipment with id {shipment_id}.")
     shipment["had_exception"] = bool(shipment["had_exception"])
     return jsonify(to_json(shipment))
+
+
+# ---- live KPIs for the dashboard (Step 5) --------------------------------------------------------
+def _months_between(first, last):
+    return (last.year - first.year) * 12 + last.month - first.month + 1
+
+
+def _month_list(first, last):
+    out, y, mth = [], first.year, first.month
+    while (y, mth) <= (last.year, last.month):
+        out.append(f"{y}-{mth:02d}")
+        y, mth = (y + 1, 1) if mth == 12 else (y, mth + 1)
+    return out
+
+
+@bp.get("/kpis")
+@login_required
+def kpis():
+    """Everything the dashboard's live KPI section shows, worked out from MySQL on every call, so the
+    numbers change as soon as an order, product or input changes."""
+    require_db()
+    raw = repo.kpi_data()
+    route_cost = {r["route"]: (float(r["cost"]), int(r["units"])) for r in raw["routes"]}
+
+    def per_unit(route):
+        cost, units = route_cost.get(route, (0.0, 0))
+        return cost / units if units else None
+
+    regions = []
+    for code in fintr()["regions"]:
+        demand = repo.demand_summary(code)
+        p, plan_volume = fintr()["inputs"](code), fintr()["volume"](code)
+        be = m.break_even_volume(p)
+        actual = demand["consumer_units"] / demand["months"] if demand["months"] else 0.0
+        regions.append({
+            "code": code, "name": fintr()["name"](code),
+            "consumer_orders": demand["consumer_orders"], "consumer_units": demand["consumer_units"],
+            "avg_orders_per_month": demand["avg_orders_per_month"], "avg_units_per_month": round(actual, 2),
+            "planning_volume": plan_volume, "break_even_volume": be,
+            "actual_share_of_break_even": (actual / be) if be else None,
+            "recommendation_at_actual_demand": m.recommend(p, actual, fintr()["margin"]),
+            "recommendation_at_planning_volume": m.recommend(p, plan_volume, fintr()["margin"]),
+            "direct_cost_per_unit_zar": per_unit(f"SA-{code.upper()}-DIRECT")})
+
+    stock_points = []
+    for s in repo.stock_levels():
+        months = _months_between(s["first_restock"], s["last_month"]) if s["first_restock"] else 0
+        monthly = s["units_out"] / months if months else 0.0
+        # reorder point = expected demand during the restock lead time (transit days / 30)
+        reorder_point = ceil(monthly * (s["lead_days"] or 0) / 30)
+        stock_points.append({
+            "name": s["name"], "region": s["region"], "units_in": s["units_in"], "units_out": s["units_out"],
+            "on_hand": s["on_hand"], "avg_units_out_per_month": round(monthly, 2),
+            "months_of_cover": round(s["on_hand"] / monthly, 1) if monthly else None,
+            "reorder_point": reorder_point,
+            "status": "Out of stock" if s["on_hand"] <= 0 else
+                      "Restock now" if s["on_hand"] <= reorder_point else "OK"})
+
+    months = sorted({row["month"] for row in raw["monthly"]})
+    labels = _month_list(datetime.strptime(months[0], "%Y-%m"), datetime.strptime(months[-1], "%Y-%m")) if months else []
+    series = {code: [0] * len(labels) for code in fintr()["regions"]}
+    for row in raw["monthly"]:
+        series[row["region"]][labels.index(row["month"])] = int(row["units"])
+
+    ships = raw["shipments"]
+    body = {
+        "totals": {"products": raw["products"], "consumer_orders": raw["consumer"]["orders"],
+                   "consumer_units": int(raw["consumer"]["units"]), "revenue_zar": raw["consumer"]["revenue"],
+                   "shipments": ships["shipments"], "late_shipments": int(ships["late"]),
+                   "late_rate": int(ships["late"]) / ships["shipments"] if ships["shipments"] else None,
+                   "courier_spend_zar": raw["courier_spend_zar"]},
+        "regions": regions, "stock_points": stock_points,
+        "unit_cost_by_route_zar": {"direct_to_us_customer": per_unit("SA-US-DIRECT"),
+                                   "bulk_to_us_stock_point": per_unit("SA-US-STOCK")},
+        "monthly_units": {"months": labels, **series},
+        "updated_at": datetime.now().isoformat(timespec="seconds")}
+    return jsonify(to_json(body))
 
 
 # ---- PDF report log -------------------------------------------------------------------------------

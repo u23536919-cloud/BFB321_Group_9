@@ -100,7 +100,7 @@ def save_settings(new_values, regional_shipment, user_id):
 
 
 def record_scenario(code, user_id, volume, wi, break_even, saving, recommendation):
-    """Save one what-if run so the history is kept. Returns scenario ID"""
+    """Save one what-if run so the history is kept. Returns the new scenario id."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
             "INSERT INTO scenarios (region_id, user_id, monthly_volume, freight_pct, customs_pct, "
@@ -129,8 +129,10 @@ def recent_scenarios(limit=10):
             "ORDER BY s.created_at DESC, s.id DESC LIMIT %s", (limit,))
         return cur.fetchall()
 
-# Queries used by the REST API (api/) 
-# Filters are added as "column = %s" pieces with their values kept separately,
+
+# ---- Step 4: queries used by the REST API (api/) ----------------------------------------------
+# Each list_* function takes optional filters plus limit/offset and returns (rows, total) so the
+# API can paginate.  Filters are added as "column = %s" pieces with their values kept separately,
 # so user input never becomes part of the SQL text.
 
 def _where(conditions):
@@ -342,3 +344,73 @@ def product_exists(sku):
     with connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT 1 FROM products WHERE sku = %s", (sku,))
         return cur.fetchone() is not None
+
+
+# ---- Step 5: stock at stock points and the live KPIs for the dashboard ---------------------------
+# Stock is not stored as a number that could get out of step: it is worked out from the orders.
+# Units IN  = restock orders whose route ends at the stock point.
+# Units OUT = orders whose route starts at the stock point (sent to customers from there).
+
+STOCK_SQL = ("SELECT l.id, l.name, r.code AS region, "
+             " COALESCE((SELECT SUM(o.units) FROM orders o JOIN routes rt ON rt.id = o.route_id "
+             "           WHERE rt.destination_location_id = l.id), 0) AS units_in, "
+             " COALESCE((SELECT SUM(o.units) FROM orders o JOIN routes rt ON rt.id = o.route_id "
+             "           WHERE rt.origin_location_id = l.id), 0) AS units_out, "
+             " (SELECT MIN(o.order_month) FROM orders o JOIN routes rt ON rt.id = o.route_id "
+             "  WHERE rt.destination_location_id = l.id) AS first_restock, "
+             " (SELECT MAX(o.order_month) FROM orders o) AS last_month, "
+             " (SELECT MAX(rt.transit_days_max) FROM routes rt WHERE rt.destination_location_id = l.id) AS lead_days "
+             "FROM locations l LEFT JOIN regions r ON r.id = l.region_id WHERE l.location_type = 'Stock point'")
+
+
+def stock_levels():
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(STOCK_SQL + " ORDER BY l.name")
+        rows = cur.fetchall()
+    for row in rows:
+        row["units_in"], row["units_out"] = int(row["units_in"]), int(row["units_out"])
+        row["on_hand"] = row["units_in"] - row["units_out"]
+    return rows
+
+
+def stock_on_hand_for_route(route_code):
+    """Units on hand at the route's origin if that origin is a stock point, otherwise None."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT origin_location_id FROM routes WHERE code = %s", (route_code,))
+        route = cur.fetchone()
+    if route is None:
+        return None
+    for row in stock_levels():
+        if row["id"] == route["origin_location_id"]:
+            return row["on_hand"]
+    return None
+
+
+def kpi_data():
+    """Raw totals for GET /api/kpis (the API adds the model results)."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM products")
+        products = cur.fetchone()["n"]
+        cur.execute("SELECT COUNT(*) AS orders, COALESCE(SUM(o.units), 0) AS units, "
+                    "COALESCE(SUM(o.units * p.retail_price_zar), 0) AS revenue "
+                    "FROM orders o JOIN products p ON p.id = o.product_id WHERE o.order_type = 'Consumer'")
+        consumer = cur.fetchone()
+        cur.execute("SELECT COUNT(*) AS shipments, COALESCE(SUM(had_exception), 0) AS late FROM shipments")
+        ships = cur.fetchone()
+        cur.execute("SELECT COALESCE(SUM(amount_zar), 0) AS spend FROM invoice_lines")
+        spend = cur.fetchone()["spend"]
+        # actual courier cost per unit on each route = all its invoice lines / units carried
+        cur.execute("SELECT rt.code AS route, r.code AS region, "
+                    " (SELECT COALESCE(SUM(l.amount_zar), 0) FROM shipments s JOIN invoices i ON i.shipment_id = s.id "
+                    "  JOIN invoice_lines l ON l.invoice_id = i.id WHERE s.route_id = rt.id) AS cost, "
+                    " (SELECT COALESCE(SUM(o.units), 0) FROM orders o JOIN shipments s ON s.id = o.shipment_id "
+                    "  WHERE s.route_id = rt.id) AS units "
+                    "FROM routes rt JOIN locations d ON d.id = rt.destination_location_id "
+                    "LEFT JOIN regions r ON r.id = d.region_id ORDER BY rt.code")
+        routes = cur.fetchall()
+        cur.execute("SELECT DATE_FORMAT(o.order_month, '%Y-%m') AS month, r.code AS region, "
+                    "SUM(o.units) AS units FROM orders o JOIN regions r ON r.id = o.region_id "
+                    "WHERE o.order_type = 'Consumer' GROUP BY month, r.code ORDER BY month")
+        monthly = cur.fetchall()
+    return {"products": products, "consumer": consumer, "shipments": ships, "courier_spend_zar": spend,
+            "routes": routes, "monthly": monthly}
