@@ -1,0 +1,188 @@
+{% extends "base.html" %}{% block title %}Orders{% endblock %}
+{% block content %}
+<div class="page-head">
+ <h1>Orders - Fintr's international orders</h1>
+ <span class="updated">Live from MySQL through the API</span>
+</div>
+{% if not api_ready %}
+<div class="alert alert-warning">This page needs the database (set <code>USE_DATABASE=true</code> in <code>.env</code> and log in).</div>
+{% else %}
+<div class="row g-3 mb-3" id="order-kpis" aria-live="polite">
+ <div class="col-6 col-xl-3"><section class="kpi-tile"><div class="kpi-head"><i class="bi bi-receipt" aria-hidden="true"></i><span>Consumer orders</span></div><div class="kpi-val" data-kpi="orders">…</div><div class="kpi-unit">all months</div></section></div>
+ <div class="col-6 col-xl-3"><section class="kpi-tile"><div class="kpi-head"><i class="bi bi-box" aria-hidden="true"></i><span>Units sold</span></div><div class="kpi-val" data-kpi="units">…</div><div class="kpi-unit">units</div></section></div>
+ <div class="col-6 col-xl-3"><section class="kpi-tile"><div class="kpi-head"><i class="bi bi-buildings" aria-hidden="true"></i><span>US stock point on hand</span></div><div class="kpi-val" data-kpi="stock">…</div><div class="kpi-unit" data-kpi="stock-status">units</div></section></div>
+ <div class="col-6 col-xl-3"><section class="kpi-tile"><div class="kpi-head"><i class="bi bi-hourglass-split" aria-hidden="true"></i><span>Stock cover</span></div><div class="kpi-val" data-kpi="cover">…</div><div class="kpi-unit">months</div></section></div>
+</div>
+
+<div class="row g-3">
+ <div class="{{ 'col-xl-8' if can_edit else 'col-12' }}"><section class="panel" aria-labelledby="list-h">
+  <h2 id="list-h">All orders</h2>
+  <form class="row g-2 align-items-end mb-2" id="filters" aria-label="Filter orders">
+   <div class="col-6 col-md-3"><label class="form-label small mb-0" for="f-region">Region</label>
+    <select class="form-select form-select-sm" id="f-region" name="region"><option value="">All</option><option value="uk">UK</option><option value="us">US</option></select></div>
+   <div class="col-6 col-md-3"><label class="form-label small mb-0" for="f-type">Type</label>
+    <select class="form-select form-select-sm" id="f-type" name="order_type"><option value="">All</option><option>Consumer</option><option>Restock</option></select></div>
+   <div class="col-6 col-md-2"><label class="form-label small mb-0" for="f-from">From</label>
+    <input class="form-control form-control-sm" id="f-from" name="from" type="month"></div>
+   <div class="col-6 col-md-2"><label class="form-label small mb-0" for="f-to">To</label>
+    <input class="form-control form-control-sm" id="f-to" name="to" type="month"></div>
+   <div class="col-12 col-md-2"><button class="btn btn-sm btn-outline-secondary w-100" type="reset">Clear</button></div>
+  </form>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-2">
+   <caption class="visually-hidden">Orders</caption>
+   <thead><tr><th scope="col">#</th><th scope="col">Month</th><th scope="col">Region</th><th scope="col">Type</th><th scope="col" class="text-end">Units</th><th scope="col">Route</th><th scope="col">Shipment</th>{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+   <tbody id="rows"></tbody>
+  </table></div>
+  <nav class="d-flex justify-content-between align-items-center small" aria-label="Pages">
+   <button class="btn btn-sm btn-outline-secondary" id="prev" type="button">&laquo; Previous</button>
+   <span id="page-info" aria-live="polite"></span>
+   <button class="btn btn-sm btn-outline-secondary" id="next" type="button">Next &raquo;</button>
+  </nav>
+ </section></div>
+
+ {% if can_edit %}
+ <div class="col-xl-4"><section class="panel" aria-labelledby="add-h">
+  <h2 id="add-h">Record an order</h2>
+  <p class="panel-sub">Orders from the US stock point use its stock.</p>
+  <form id="add-form" novalidate>
+   {% include "_order_fields.html" %}
+   <button class="btn btn-fintr w-100 mt-2" type="submit">Save order</button>
+  </form>
+ </section></div>
+ {% else %}
+ <p class="small text-muted mt-2">Your role ({{ user_role }}) can view orders. Finance and Supply chain planners can add and edit them.</p>
+ {% endif %}
+</div>
+
+<div class="modal fade" id="edit-modal" tabindex="-1" aria-labelledby="edit-h" aria-hidden="true">
+ <div class="modal-dialog"><form class="modal-content" id="edit-form" novalidate>
+  <div class="modal-header"><h2 class="modal-title h5" id="edit-h">Edit order <span id="edit-id"></span></h2>
+   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">{% include "_order_fields.html" %}</div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+   <button class="btn btn-fintr" type="submit">Save changes</button></div>
+ </form></div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if api_ready %}
+<script>
+"use strict";
+const ROUTES = {uk: ["SA-UK-DIRECT"], us: ["SA-US-DIRECT", "SA-US-STOCK", "US-STOCK-CUST"]};
+const ROUTE_NAMES = {"SA-UK-DIRECT": "SA → UK customer", "SA-US-DIRECT": "SA → US customer",
+  "SA-US-STOCK": "SA → US stock point (restock)", "US-STOCK-CUST": "US stock point → US customer"};
+const rows = document.getElementById("rows"), filters = document.getElementById("filters");
+let page = 1, pages = 0, current = {};
+
+/* ---- the list: GET /api/orders with filters and pagination ---- */
+async function loadOrders() {
+  showState(rows, "loading", "Loading orders…");
+  const q = new URLSearchParams({page, per_page: 8});
+  for (const [k, v] of new FormData(filters)) if (v) q.set(k, v);
+  try {
+    const body = await api("GET", "/api/orders?" + q);
+    pages = body.pagination.pages;
+    document.getElementById("page-info").textContent =
+      body.pagination.total ? `Page ${page} of ${pages} · ${body.pagination.total} orders` : "";
+    document.getElementById("prev").disabled = page <= 1;
+    document.getElementById("next").disabled = page >= pages;
+    if (!body.data.length) return showState(rows, "empty", "No orders match these filters.");
+    current = Object.fromEntries(body.data.map(o => [o.id, o]));
+    rows.innerHTML = body.data.map(o => `<tr id="order-${o.id}">
+      <td>${o.id}</td><td>${monthLabel(o.order_month)}</td><td>${o.region.toUpperCase()}</td>
+      <td><span class="badge ${o.order_type === "Restock" ? "text-bg-secondary" : "text-bg-light border"}">${esc(o.order_type)}</span></td>
+      <td class="text-end">${o.units}</td><td class="small">${esc(ROUTE_NAMES[o.route] || o.route)}</td>
+      <td>${o.shipment_id ? "#" + o.shipment_id : "–"}</td>
+      ${CAN_EDIT ? `<td class="text-end"><button class="btn btn-sm btn-outline-primary edit" data-id="${o.id}" type="button" aria-label="Edit order ${o.id}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>` : ""}
+    </tr>`).join("");
+  } catch (err) {
+    showState(rows, "error", err.message, loadOrders);
+  }
+}
+
+/* ---- the KPI tiles: GET /api/kpis ---- */
+async function loadKpis() {
+  try {
+    const k = await api("GET", "/api/kpis");
+    const sp = k.stock_points[0] || {};
+    const set = (name, text) => { document.querySelector(`[data-kpi="${name}"]`).textContent = text; };
+    set("orders", num(k.totals.consumer_orders)); set("units", num(k.totals.consumer_units));
+    set("stock", num(sp.on_hand)); set("cover", sp.months_of_cover ?? "n/a");
+    const status = document.querySelector('[data-kpi="stock-status"]');
+    status.textContent = `units · ${sp.status || "n/a"} (reorder at ${sp.reorder_point ?? "?"})`;
+    status.className = "kpi-unit " + (sp.status === "OK" ? "text-success" : "text-danger fw-semibold");
+  } catch (err) {
+    document.querySelectorAll("#order-kpis .kpi-val").forEach(el => { el.textContent = "–"; });
+    toast("Could not load the KPIs: " + err.message, "danger");
+  }
+}
+
+/* ---- the order form (used for "Record an order" and "Edit order") ---- */
+function fillRoutes(form, selected) {
+  const region = form.region.value, list = ROUTES[region] || [];
+  form.route.innerHTML = list.map(r => `<option value="${r}" ${r === selected ? "selected" : ""}>${ROUTE_NAMES[r]}</option>`).join("");
+}
+function readForm(form) {
+  const body = {region: form.region.value, sku: form.sku.value, route: form.route.value,
+    order_month: form.order_month.value, order_type: form.order_type.value,
+    units: form.units.value === "" ? null : Number(form.units.value)};
+  if (form.units.value !== "" && !Number.isInteger(body.units)) body.units = form.units.value;  // let the API explain
+  return body;
+}
+async function loadProducts() {
+  try {
+    const body = await api("GET", "/api/products?per_page=100");
+    const options = body.data.map(p => `<option value="${esc(p.sku)}">${esc(p.sku)} – ${esc(p.name)}</option>`).join("");
+    document.querySelectorAll('select[name="sku"]').forEach(s => { s.innerHTML = options; });
+  } catch (err) { toast("Could not load the products: " + err.message, "danger"); }
+}
+document.querySelectorAll("#add-form, #edit-form").forEach(form => {
+  form.region.addEventListener("change", () => fillRoutes(form));
+  fillRoutes(form);
+});
+
+const addForm = document.getElementById("add-form");
+addForm?.addEventListener("submit", async e => {
+  e.preventDefault(); clearFieldErrors(addForm);
+  try {
+    const order = await busy(addForm.querySelector("[type=submit]"), () => api("POST", "/api/orders", readForm(addForm)));
+    toast(`Order #${order.id} saved: ${order.units} units for ${order.region.toUpperCase()}.`);
+    addForm.units.value = "";
+    page = 1; await Promise.all([loadOrders(), loadKpis()]);
+    document.getElementById(`order-${order.id}`)?.classList.add("row-flash");
+  } catch (err) { if (err.status !== 401) showFieldErrors(addForm, err); }
+});
+
+const editForm = document.getElementById("edit-form"), editModal = new bootstrap.Modal("#edit-modal");
+rows.addEventListener("click", e => {
+  const button = e.target.closest(".edit"); if (!button) return;
+  const o = current[button.dataset.id];
+  clearFieldErrors(editForm);
+  editForm.dataset.id = o.id; document.getElementById("edit-id").textContent = "#" + o.id;
+  editForm.region.value = o.region; fillRoutes(editForm, o.route);
+  editForm.sku.value = o.sku; editForm.order_month.value = o.order_month.slice(0, 7);
+  editForm.order_type.value = o.order_type; editForm.units.value = o.units;
+  editModal.show();
+});
+editForm.addEventListener("submit", async e => {
+  e.preventDefault(); clearFieldErrors(editForm);
+  try {
+    const order = await busy(editForm.querySelector("[type=submit]"),
+      () => api("PUT", `/api/orders/${editForm.dataset.id}`, readForm(editForm)));
+    editModal.hide();
+    toast(`Order #${order.id} updated.`);
+    await Promise.all([loadOrders(), loadKpis()]);
+    document.getElementById(`order-${order.id}`)?.classList.add("row-flash");
+  } catch (err) { if (err.status !== 401) showFieldErrors(editForm, err); }
+});
+
+filters.addEventListener("change", () => { page = 1; loadOrders(); });
+filters.addEventListener("reset", () => setTimeout(() => { page = 1; loadOrders(); }));
+document.getElementById("prev").addEventListener("click", () => { if (page > 1) { page--; loadOrders(); } });
+document.getElementById("next").addEventListener("click", () => { if (page < pages) { page++; loadOrders(); } });
+
+const thisMonth = new Date().toISOString().slice(0, 7);
+document.querySelectorAll('input[name="order_month"]').forEach(i => { i.value = thisMonth; });
+loadOrders(); loadKpis(); loadProducts();
+</script>
+{% endif %}{% endblock %}

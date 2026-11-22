@@ -1,0 +1,105 @@
+{% extends "base.html" %}{% block title %}Products{% endblock %}
+{% block content %}
+<div class="page-head">
+ <h1>Products - what Fintr sells</h1>
+ <span class="updated">Live from MySQL through the API</span>
+</div>
+{% if not api_ready %}
+<div class="alert alert-warning">This page needs the database (set <code>USE_DATABASE=true</code> in <code>.env</code> and log in).</div>
+{% else %}
+<div class="row g-3">
+ <div class="{{ 'col-xl-8' if can_edit else 'col-12' }}"><section class="panel" aria-labelledby="list-h">
+  <h2 id="list-h">Product list</h2>
+  <p class="panel-sub">Margin = retail price minus landed cost, per unit, in ZAR.</p>
+  <div class="table-responsive"><table class="table table-sm align-middle">
+   <caption class="visually-hidden">Products</caption>
+   <thead><tr><th scope="col">SKU</th><th scope="col">Name</th><th scope="col" class="text-end">Ex-factory</th><th scope="col" class="text-end">Landed cost</th><th scope="col" class="text-end">Retail price</th><th scope="col" class="text-end">Margin</th>{% if can_edit %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}</tr></thead>
+   <tbody id="rows"></tbody>
+  </table></div>
+ </section></div>
+ {% if can_edit %}
+ <div class="col-xl-4"><section class="panel" aria-labelledby="add-h">
+  <h2 id="add-h">Add a product</h2>
+  <form id="add-form" novalidate>{% include "_product_fields.html" %}
+   <button class="btn btn-fintr w-100 mt-2" type="submit">Save product</button></form>
+ </section></div>
+ {% else %}
+ <p class="small text-muted mt-2">Your role ({{ user_role }}) can view products. Finance and Supply chain planners can add and edit them.</p>
+ {% endif %}
+</div>
+
+<div class="modal fade" id="edit-modal" tabindex="-1" aria-labelledby="edit-h" aria-hidden="true">
+ <div class="modal-dialog"><form class="modal-content" id="edit-form" novalidate>
+  <div class="modal-header"><h2 class="modal-title h5" id="edit-h">Edit product</h2>
+   <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">{% include "_product_fields.html" %}</div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+   <button class="btn btn-fintr" type="submit">Save changes</button></div>
+ </form></div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if api_ready %}
+<script>
+"use strict";
+const rows = document.getElementById("rows"), FIELDS = ["sku", "name", "ex_factory_zar", "landed_cost_zar", "retail_price_zar"];
+let current = {};
+
+async function loadProducts() {
+  showState(rows, "loading", "Loading products…");
+  try {
+    const body = await api("GET", "/api/products?per_page=100");
+    if (!body.data.length) return showState(rows, "empty", "No products yet. Add the first one.");
+    current = Object.fromEntries(body.data.map(p => [p.id, p]));
+    rows.innerHTML = body.data.map(p => `<tr id="product-${p.id}">
+      <td><code>${esc(p.sku)}</code></td><td>${esc(p.name)}</td>
+      <td class="text-end">${zar(p.ex_factory_zar, 2)}</td><td class="text-end">${zar(p.landed_cost_zar, 2)}</td>
+      <td class="text-end">${zar(p.retail_price_zar, 2)}</td><td class="text-end fw-semibold">${zar(p.retail_price_zar - p.landed_cost_zar, 2)}</td>
+      ${CAN_EDIT ? `<td class="text-end"><button class="btn btn-sm btn-outline-primary edit" data-id="${p.id}" type="button" aria-label="Edit ${esc(p.sku)}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>` : ""}
+    </tr>`).join("");
+  } catch (err) { showState(rows, "error", err.message, loadProducts); }
+}
+
+function readForm(form) {
+  const body = {};
+  for (const f of FIELDS) {
+    const v = form[f].value.trim();
+    body[f] = f.endsWith("_zar") ? (v === "" ? null : Number(v)) : v;
+  }
+  return body;
+}
+function onlyChanged(body, before) {  // PUT: send only what changed
+  return Object.fromEntries(Object.entries(body).filter(([k, v]) => String(v) !== String(before[k])));
+}
+
+const addForm = document.getElementById("add-form");
+addForm?.addEventListener("submit", async e => {
+  e.preventDefault(); clearFieldErrors(addForm);
+  try {
+    const p = await busy(addForm.querySelector("[type=submit]"), () => api("POST", "/api/products", readForm(addForm)));
+    toast(`Product ${p.sku} saved.`); addForm.reset();
+    await loadProducts(); document.getElementById(`product-${p.id}`)?.classList.add("row-flash");
+  } catch (err) { if (err.status !== 401) showFieldErrors(addForm, err); }
+});
+
+const editForm = document.getElementById("edit-form"), editModal = new bootstrap.Modal("#edit-modal");
+rows.addEventListener("click", e => {
+  const button = e.target.closest(".edit"); if (!button) return;
+  const p = current[button.dataset.id];
+  clearFieldErrors(editForm); editForm.dataset.id = p.id;
+  for (const f of FIELDS) editForm[f].value = p[f];
+  editModal.show();
+});
+editForm.addEventListener("submit", async e => {
+  e.preventDefault(); clearFieldErrors(editForm);
+  const id = editForm.dataset.id, changes = onlyChanged(readForm(editForm), current[id]);
+  if (!Object.keys(changes).length) { editModal.hide(); return toast("Nothing changed.", "secondary"); }
+  try {
+    const p = await busy(editForm.querySelector("[type=submit]"), () => api("PUT", `/api/products/${id}`, changes));
+    editModal.hide(); toast(`Product ${p.sku} updated.`);
+    await loadProducts(); document.getElementById(`product-${p.id}`)?.classList.add("row-flash");
+  } catch (err) { if (err.status !== 401) showFieldErrors(editForm, err); }
+});
+loadProducts();
+</script>
+{% endif %}{% endblock %}
