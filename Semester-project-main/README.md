@@ -14,7 +14,7 @@ Model cost calculations, dashboard charts and reports use ZAR as the common curr
 | --- | --- | --- |
 | Farah Hassim | u23536919 | u23536919-cloud |
 | Katarina Stamenic | u23635119 | Katarina-09 |
-| Keratile Maboka | u24648702 | Keratila_M |
+| Keratile Maboka | u24648702 | Keratila-M |
 
 ## Task Allocation
 
