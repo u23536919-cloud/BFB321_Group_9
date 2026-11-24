@@ -1,5 +1,7 @@
 # Fintr Break-Even Tool (BFB 321, Group 9)
 
+# AI was used to help build the model
+
 ## Project Description
 
 This web application helps Fintr decide when it becomes cheaper to hold stock in a regional warehouse (UK or US) than to ship directly from South Africa. For each region it calculates the break-even volume, compares direct shipping and warehouse costs, shows potential monthly savings, and gives a recommendation. Users can change the inputs, run what-if scenarios (freight rate, volume growth and warehouse lease changes), view alerts, and export a PDF report.

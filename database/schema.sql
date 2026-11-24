@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Fintr break-even tool (BFB 321, Group 9)  -  MySQL schema
--- Works on MySQL 8 and MariaDB 10.5+.  Run it on an EMPTY database
+-- Works on MySQL workbench 8.  Run it on an EMPTY database
 -- (python db.py init does this for you).  The DROP lines at the top
 -- make the script repeatable: running it again resets the tables.
 -- All money columns are DECIMAL (never FLOAT).  Costs are stored in ZAR.
