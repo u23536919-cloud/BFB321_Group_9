@@ -79,7 +79,7 @@ Money columns use `DECIMAL`, every table has a primary key and `created_at`/`upd
 
 ## Installation and Setup
 
-You need Python 3.10 or newer and MySQL 8 (or MariaDB 10.5+).
+You need Python 3.10 or newer and MySQL 8.
 
 ### 1. Get the code
 
@@ -91,10 +91,37 @@ cd BFB321_Group_9
 ### 2. Create a virtual environment and install the requirements
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Mac / Linux
-pip install -r requirements.txt
+1.11	 In the terminal type in the code below to create the .env file 
+copy .env.example .env
+** NOTE: Do NOT upload .env to GitHub since it holds confidential information. The .gitignore file already prevents it from committing to GitHub **
+**NOTE: Root means you are accessing MySQL on your own laptop, therefore the root password is the password you set for your own MySQL. ** 
+1.12	In the env. file change the DB_USER = root 
+DB_PASSWORD = root password 
+2.	Creating the database
+2.1	Open MySQL Workbench
+2.2	Click Local instance 
+2.3	Enter the root password 
+2.4	File -> New Query Tab 
+2.5	In the New Query Tab paste the lines below: 
+CREATE DATABASE IF NOT EXISTS fintr_breakeven CHARACTER SET utf8mb4;
+CREATE DATABASE IF NOT EXISTS fintr_breakeven_test CHARACTER SET utf8mb4;
+2.6	Click the lightning bolt to run
+Two ticks should appear 
+2.7 Save MySQL folder in the same parent folder as the Web applications folder 
+3.	Terminal Execution
+3.1	In the terminal type the following code one at a time and press enter after each one: 
+python -m venv .venv for Windows OR python3 -m venv .venv for Mac
+.venv\Scripts\activate for Windows or source .venv/bin/activate for Mac
+python -m pip install -r requirements.txt
+python db.py check
+python db.py init
+python app.py 
+4.	Start the app and log in
+4.1	copy the http link (http://127.0.0.1:5000) in the terminal and paste it into a browser.
+4.2	Press enter 
+4.3	Use the demo login details below:
+User: jiara.martins@fintr.com 
+Password: demo123 (password) 
 ```
 
 If `pip.exe` is blocked on your computer, use `python -m pip install -r requirements.txt` instead.
